@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       model_name:
-        description: 'HuggingFace model name (e.g., Qwen/Qwen2-7B-Instruct)'
+        description: 'HuggingFace model name (e.g., huihui-ai/Huihui-Qwen3-14B-abliterated-v2)'
         required: true
-        default: 'Qwen/Qwen2-7B-Instruct'
+        default: 'huihui-ai/Huihui-Qwen3-14B-abliterated-v2'
       image_tag:
         description: 'Docker image tag'
         required: true
@@ -14,20 +14,61 @@ on:
       use_mirror:
         description: 'Use HuggingFace mirror (hf-mirror.com)'
         type: boolean
-        default: true
+        default: false
   push:
     branches: [ main ]
     paths: [ 'Dockerfile', '.github/workflows/**' ]
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: ${{ github.repository_owner }}/model-storage
+  IMAGE_NAME: seecsea/hf-qwen3
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Maximize build space
+      uses: AdityaGarg8/remove-unwanted-software@v5
+      with:
+        remove-dotnet: 'true'
+        remove-android: 'true'
+        remove-haskell: 'true'
+        remove-codeql: 'true'
+        remove-docker-images: 'true'
+        remove-large-packages: 'true'
+        remove-cached-tools: 'true'
+        remove-swapfile: 'true'
+    
+    - name: Stop Docker and move data directory to /mnt
+      run: |
+        echo "==> Stopping Docker service"
+        sudo systemctl stop docker
+        sudo systemctl stop docker.socket
+        
+        echo "==> Creating new Docker data directory in /mnt"
+        sudo mkdir -p /mnt/docker-data
+        
+        echo "==> Moving existing Docker data (if any)"
+        if [ -d "/var/lib/docker" ]; then
+          sudo mv /var/lib/docker/* /mnt/docker-data/ 2>/dev/null || true
+        fi
+        
+        echo "==> Configuring Docker daemon to use /mnt/docker-data"
+        sudo mkdir -p /etc/docker
+        sudo tee /etc/docker/daemon.json > /dev/null <<EOF
+        {
+          "data-root": "/mnt/docker-data",
+          "storage-driver": "overlay2"
+        }
+        EOF
+        
+        echo "==> Starting Docker service"
+        sudo systemctl start docker
+        
+        echo "==> Verifying new configuration"
+        docker info | grep "Docker Root Dir"
+        
     - name: Checkout repository
       uses: actions/checkout@v4
 
@@ -44,7 +85,7 @@ jobs:
     - name: Generate image metadata
       id: meta
       run: |
-        MODEL_NAME="${{ github.event.inputs.model_name || 'Qwen/Qwen2-7B-Instruct' }}"
+        MODEL_NAME="${{ github.event.inputs.model_name || 'huihui-ai/Huihui-Qwen3-14B-abliterated-v2' }}"
         IMAGE_TAG="${{ github.event.inputs.image_tag || 'latest' }}"
         
         echo "model_name=$MODEL_NAME" >> $GITHUB_OUTPUT
