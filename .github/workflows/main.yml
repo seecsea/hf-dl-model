@@ -4,23 +4,24 @@ on:
   workflow_dispatch:
     inputs:
       model_name:
-        description: 'Huihui-Qwen3-0.6B-abliterated-v2'
+        description: 'HuggingFace model name (e.g., Qwen/Qwen2-7B-Instruct)'
         required: true
-        default: 'huihui-ai/Huihui-Qwen3-0.6B-abliterated-v2'
+        default: 'Qwen/Qwen2-7B-Instruct'
       image_tag:
         description: 'Docker image tag'
         required: true
-        default: '0.6B-abliterated-v2'
+        default: 'latest'
       use_mirror:
         description: 'Use HuggingFace mirror (hf-mirror.com)'
         type: boolean
-        default: false
+        default: true
   push:
     branches: [ main ]
     paths: [ 'Dockerfile', '.github/workflows/**' ]
 
 env:
-  IMAGE_NAME: seecsea/hf-qwen3  # 替换为你的 Docker Hub 用户名
+  REGISTRY: docker.io
+  IMAGE_NAME: ${{ github.repository_owner }}/model-storage
 
 jobs:
   build:
@@ -36,28 +37,22 @@ jobs:
     - name: Log in to Docker Hub
       uses: docker/login-action@v3
       with:
+        registry: ${{ env.REGISTRY }}
         username: ${{ vars.DOCKER_HUB_USERNAME }}
         password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
-    - name: Generate image tags and build args
-      id: prepare
+    - name: Generate image metadata
+      id: meta
       run: |
-        MODEL_NAME="${{ github.event.inputs.model_name || 'huihui-ai/Huihui-Qwen3-0.6B-abliterated-v2' }}"
-        MODEL_TAG=$(echo "$MODEL_NAME" | sed 's/\//-/g' | tr '[:upper:]' '[:lower:]')
-        CUSTOM_TAG="${{ github.event.inputs.image_tag || 'latest' }}"
-        TIMESTAMP_TAG=$(date +%Y%m%d-%H%M%S)
+        MODEL_NAME="${{ github.event.inputs.model_name || 'Qwen/Qwen2-7B-Instruct' }}"
+        IMAGE_TAG="${{ github.event.inputs.image_tag || 'latest' }}"
         
         echo "model_name=$MODEL_NAME" >> $GITHUB_OUTPUT
-        echo "model_tag=$MODEL_TAG" >> $GITHUB_OUTPUT
-        echo "custom_tag=$CUSTOM_TAG" >> $GITHUB_OUTPUT
-        echo "timestamp_tag=$TIMESTAMP_TAG" >> $GITHUB_OUTPUT
+        echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
         
-        # 构建完整的镜像标签列表
-        TAGS="${{ env.IMAGE_NAME }}:$CUSTOM_TAG"
-        TAGS="$TAGS,${{ env.IMAGE_NAME }}:$MODEL_TAG"
-        TAGS="$TAGS,${{ env.IMAGE_NAME }}:$TIMESTAMP_TAG"
-        
-        echo "tags=$TAGS" >> $GITHUB_OUTPUT
+        # 只生成一个标签
+        FULL_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG"
+        echo "full_tag=$FULL_TAG" >> $GITHUB_OUTPUT
         
         # 设置 HuggingFace 端点
         if [ "${{ github.event.inputs.use_mirror }}" = "true" ]; then
@@ -70,34 +65,34 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: .
-        platforms: linux/amd64,linux/arm64
+        platforms: linux/amd64  # 只构建 amd64 架构
         push: true
-        tags: ${{ steps.prepare.outputs.tags }}
+        tags: ${{ steps.meta.outputs.full_tag }}  # 只使用一个标签
         build-args: |
           HF_TOKEN=${{ secrets.HF_TOKEN }}
-          MODEL_NAME=${{ steps.prepare.outputs.model_name }}
-          HF_ENDPOINT=${{ steps.prepare.outputs.hf_endpoint }}
+          MODEL_NAME=${{ steps.meta.outputs.model_name }}
+          HF_ENDPOINT=${{ steps.meta.outputs.hf_endpoint }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
     - name: Test image
       run: |
         echo "Testing the built image..."
-        docker run --rm ${{ env.IMAGE_NAME }}:${{ steps.prepare.outputs.custom_tag }}
+        docker run --rm ${{ steps.meta.outputs.full_tag }}
 
     - name: Generate summary
       run: |
         echo "## 🚀 Build Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Model Information" >> $GITHUB_STEP_SUMMARY
-        echo "- **Model**: \`${{ steps.prepare.outputs.model_name }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "- **Platform**: linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
+        echo "- **Model**: \`${{ steps.meta.outputs.model_name }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Platform**: linux/amd64" >> $GITHUB_STEP_SUMMARY
         echo "- **Base Image**: python:3.12.12-slim-trixie" >> $GITHUB_STEP_SUMMARY
-        echo "- **Mirror**: ${{ steps.prepare.outputs.hf_endpoint }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Mirror**: ${{ steps.meta.outputs.hf_endpoint }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Docker Images" >> $GITHUB_STEP_SUMMARY
+        echo "### Docker Image" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-        echo "${{ steps.prepare.outputs.tags }}" | tr ',' '\n' >> $GITHUB_STEP_SUMMARY
+        echo "${{ steps.meta.outputs.full_tag }}" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Usage Examples" >> $GITHUB_STEP_SUMMARY
@@ -105,13 +100,13 @@ jobs:
         echo "#### Quick Extract" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
         echo "# Pull and extract model files" >> $GITHUB_STEP_SUMMARY
-        echo "docker pull ${{ env.IMAGE_NAME }}:${{ steps.prepare.outputs.custom_tag }}" >> $GITHUB_STEP_SUMMARY
-        echo "docker create --name temp-model ${{ env.IMAGE_NAME }}:${{ steps.prepare.outputs.custom_tag }}" >> $GITHUB_STEP_SUMMARY
+        echo "docker pull ${{ steps.meta.outputs.full_tag }}" >> $GITHUB_STEP_SUMMARY
+        echo "docker create --name temp-model ${{ steps.meta.outputs.full_tag }}" >> $GITHUB_STEP_SUMMARY
         echo "docker cp temp-model:/models ./local-models" >> $GITHUB_STEP_SUMMARY
         echo "docker rm temp-model" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "#### View Model Info" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-        echo "docker run --rm ${{ env.IMAGE_NAME }}:${{ steps.prepare.outputs.custom_tag }}" >> $GITHUB_STEP_SUMMARY
+        echo "docker run --rm ${{ steps.meta.outputs.full_tag }}" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
