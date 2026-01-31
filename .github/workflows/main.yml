@@ -28,6 +28,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: List disk info
+      run: |
+        echo "==> All disk info is"
+        sudo lsblk
+        sudo df -h
+    
     - name: Maximize build space
       uses: AdityaGarg8/remove-unwanted-software@v5
       with:
