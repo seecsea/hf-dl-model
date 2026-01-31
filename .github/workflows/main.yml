@@ -15,6 +15,8 @@ on:
         description: 'Use HuggingFace mirror (hf-mirror.com)'
         type: boolean
         default: false
+  schedule:
+    - cron: "0 */8 * * *"
   push:
     branches: [ main ]
     paths: [ 'Dockerfile', '.github/workflows/**' ]
