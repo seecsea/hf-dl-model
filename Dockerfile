@@ -7,7 +7,7 @@ ENV PYTHONUNBUFFERED=1
 # 安装必要的系统依赖
 RUN apt-get update && apt-get install -y \
     git \
-    aria2 nettools \
+    aria2 net-tools \
     git-lfs \
     curl \
     wget \
