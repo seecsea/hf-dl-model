@@ -28,6 +28,10 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dummy: [1]
 
     steps:
     - name: List disk info
