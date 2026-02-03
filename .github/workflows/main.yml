@@ -16,7 +16,7 @@ on:
         type: boolean
         default: false
   schedule:
-    - cron: "0 */2 * * *"
+    - cron: "0 */12 * * *"
   push:
     branches: [ main ]
     paths: [ 'Dockerfile', '.github/workflows/**' ]
